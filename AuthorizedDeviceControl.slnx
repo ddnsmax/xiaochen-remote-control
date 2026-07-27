@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/A端/">
+    <Project Path="A端/ControlCenter/ControlCenter.csproj" />
+  </Folder>
+  <Folder Name="/B端/">
+    <Project Path="B端/RemoteAgent/RemoteAgent.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/RemoteControl.Shared/RemoteControl.Shared.csproj" />
+  </Folder>
+</Solution>

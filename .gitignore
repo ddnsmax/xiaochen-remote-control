@@ -1,0 +1,24 @@
+# .NET build output
+**/bin/
+**/obj/
+output/
+tmp/
+
+# IDE and user state
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+
+# Logs, dumps and local test artifacts
+*.log
+*.dmp
+TestResults/
+coverage/
+generated-agent-test.exe
+
+# Delivery binaries are published as GitHub Release assets
+交付/
+*.exe
+SHA256.txt

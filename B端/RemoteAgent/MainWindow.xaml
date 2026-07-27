@@ -1,0 +1,21 @@
+<Window x:Class="RemoteAgent.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Agebt B端"
+        Width="460"
+        Height="280"
+        MinWidth="360"
+        MinHeight="220"
+        WindowStartupLocation="CenterScreen"
+        Background="#11141B">
+  <Grid Background="#11141B">
+    <TextBlock x:Name="StatusText"
+               Text="未链接"
+               Foreground="#F4C542"
+               FontFamily="Microsoft YaHei UI"
+               FontSize="40"
+               FontWeight="SemiBold"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center" />
+  </Grid>
+</Window>

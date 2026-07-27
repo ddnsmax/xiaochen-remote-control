@@ -1,0 +1,266 @@
+你正在通过“小陈远控QQ;3890053645”操作一台或多台远程 Windows B端。
+
+【必须遵守】
+1. 先确认A端.exe正在本机运行，B端状态为“已链接”。
+2. 每次任务先调用 list_devices，明确记录目标 deviceId、设备名和 online 状态。
+3. 在执行任何写入、删除、移动、命令或构建前，明确区分本机路径和远程B端路径，禁止把本机路径误当成B端路径。
+4. 默认远程工作目录通过 get_workspace 获取，通常是B端当前用户实际桌面的 zzx。除非任务明确要求，不要操作该目录之外的位置。
+5. 修改后必须重新 read，构建或测试后必须检查 exitCode、success 和输出，不能只根据中间消息判断成功。
+6. 长命令使用固定 requestId；需要停止时，用相同 requestId 发送 cancel。
+
+【本地桥接】
+A端提供命名管道：
+\\.\pipe\AuthorizedDeviceControl.Codex
+
+每次连接发送一行 UTF-8 JSON；A端以一行一个 UTF-8 JSON 响应。
+远程任务会持续返回 result/output，最后返回 completed；错误返回 error。
+
+可在Codex的PowerShell终端先定义：
+
+function Invoke-RemoteB {
+  param([Parameter(Mandatory=$true)][hashtable]$Request)
+  $json = $Request | ConvertTo-Json -Compress -Depth 20
+  $pipe = [System.IO.Pipes.NamedPipeClientStream]::new(
+    '.', 'AuthorizedDeviceControl.Codex',
+    [System.IO.Pipes.PipeDirection]::InOut,
+    [System.IO.Pipes.PipeOptions]::Asynchronous)
+  $pipe.Connect(5000)
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  $writer = [System.IO.StreamWriter]::new($pipe, $utf8, 65536, $true)
+  $reader = [System.IO.StreamReader]::new($pipe, $utf8, $false, 65536, $true)
+  $writer.AutoFlush = $true
+  $writer.WriteLine($json)
+  try {
+    while (($line = $reader.ReadLine()) -ne $null) {
+      $item = $line | ConvertFrom-Json
+      $item
+      if ($item.type -in @('completed','error')) { break }
+      if ($Request.operation -eq 'list_devices' -and $item.type -eq 'result') { break }
+    }
+  } finally {
+    try { $reader.Dispose() } catch {}
+    try { $writer.Dispose() } catch {}
+    try { $pipe.Dispose() } catch {}
+  }
+}
+
+【操作】
+
+1. 列出设备
+Invoke-RemoteB @{ operation='list_devices'; requestId='list-001' }
+
+2. 查询目标B端默认工作目录
+Invoke-RemoteB @{
+  operation='get_workspace'
+  requestId='workspace-001'
+  deviceId='<目标deviceId>'
+}
+
+3. 列目录
+Invoke-RemoteB @{
+  operation='list'
+  requestId='list-files-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<get_workspace返回路径>'
+  path='.'
+}
+
+4. 读取文件
+响应的 text 是UTF-8文本；dataBase64是原始字节。
+Invoke-RemoteB @{
+  operation='read'
+  requestId='read-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='src\Program.cs'
+}
+
+5. 写入UTF-8文本
+Invoke-RemoteB @{
+  operation='write'
+  requestId='write-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='src\Program.cs'
+  text='<完整文件内容>'
+}
+
+写入二进制时不要使用 text，改用 dataBase64：
+@{
+  operation='write'
+  requestId='write-bin-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='artifact.bin'
+  dataBase64='<原始文件Base64>'
+}
+
+6. 唯一文本替换
+text字段必须是包含 old 和 new 的JSON字符串；旧文本必须且只能出现一次。
+Invoke-RemoteB @{
+  operation='replace'
+  requestId='replace-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='src\Program.cs'
+  text=(@{ old='<原文本>'; new='<新文本>' } | ConvertTo-Json -Compress)
+}
+
+7. 新建目录
+Invoke-RemoteB @{
+  operation='mkdir'
+  requestId='mkdir-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='src'
+}
+
+8. 移动或重命名
+Invoke-RemoteB @{
+  operation='move'
+  requestId='move-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='old.txt'
+  destinationPath='new.txt'
+}
+
+9. 删除文件或目录
+删除目录会递归删除，执行前必须先 list 和 read 核对目标。
+Invoke-RemoteB @{
+  operation='delete'
+  requestId='delete-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  path='待删除路径'
+}
+
+10. 流式CMD
+Invoke-RemoteB @{
+  operation='shell'
+  requestId='shell-build-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  shell='cmd'
+  command='dotnet build -c Release'
+  timeoutSeconds=600
+}
+
+11. 流式PowerShell
+Invoke-RemoteB @{
+  operation='shell'
+  requestId='shell-test-001'
+  deviceId='<目标deviceId>'
+  workingDirectory='<远程工作目录>'
+  shell='powershell'
+  command='dotnet test -c Release'
+  timeoutSeconds=600
+}
+
+12. 停止远程命令
+Invoke-RemoteB @{
+  operation='cancel'
+  requestId='shell-build-001'
+  deviceId='<目标deviceId>'
+}
+
+【远程桌面与应用操作】
+
+以下操作仍然必须经过A端命名管道和目标deviceId，不需要用户另外打开“桌面控制”窗口。
+
+13. 查询B端完整能力
+Invoke-RemoteB @{
+  operation='capabilities'
+  requestId='capabilities-001'
+  deviceId='<目标deviceId>'
+}
+
+14. 获取B端屏幕
+result.text包含虚拟桌面的left、top、width、height；result.dataBase64是PNG画面。
+Invoke-RemoteB @{
+  operation='capture_screen'
+  requestId='screen-001'
+  deviceId='<目标deviceId>'
+}
+
+15. 获取屏幕范围和鼠标位置
+Invoke-RemoteB @{
+  operation='screen_info'
+  requestId='screen-info-001'
+  deviceId='<目标deviceId>'
+}
+
+16. 鼠标移动、单击、双击和滚轮
+Invoke-RemoteB @{
+  operation='mouse_move'; requestId='move-mouse-001'; deviceId='<目标deviceId>'
+  text=(@{x=500;y=300}|ConvertTo-Json -Compress)
+}
+Invoke-RemoteB @{
+  operation='click'; requestId='click-001'; deviceId='<目标deviceId>'
+  text=(@{x=500;y=300;button='left';clicks=1}|ConvertTo-Json -Compress)
+}
+Invoke-RemoteB @{
+  operation='double_click'; requestId='double-click-001'; deviceId='<目标deviceId>'
+  text=(@{x=500;y=300;button='left'}|ConvertTo-Json -Compress)
+}
+Invoke-RemoteB @{
+  operation='scroll'; requestId='scroll-001'; deviceId='<目标deviceId>'
+  text=(@{x=500;y=300;delta=-360}|ConvertTo-Json -Compress)
+}
+
+17. 键盘快捷键和文字输入
+Invoke-RemoteB @{
+  operation='keypress'; requestId='key-001'; deviceId='<目标deviceId>'
+  text='CTRL+L'
+}
+Invoke-RemoteB @{
+  operation='type_text'; requestId='type-001'; deviceId='<目标deviceId>'
+  text='要输入到B端当前焦点的文字'
+}
+
+18. 获取、激活和关闭B端窗口
+Invoke-RemoteB @{operation='list_windows';requestId='windows-001';deviceId='<目标deviceId>'}
+Invoke-RemoteB @{
+  operation='activate_window'; requestId='activate-001'; deviceId='<目标deviceId>'
+  text=(@{title='微信'}|ConvertTo-Json -Compress)
+}
+Invoke-RemoteB @{
+  operation='close_window'; requestId='close-window-001'; deviceId='<目标deviceId>'
+  text=(@{windowHandle=123456}|ConvertTo-Json -Compress)
+}
+
+19. 在B端当前用户桌面启动应用
+path可填写exe完整路径、快捷方式、URL或应用名称；command是可选参数。
+Invoke-RemoteB @{
+  operation='launch_app'; requestId='launch-001'; deviceId='<目标deviceId>'
+  path='微信'; command=''
+}
+
+20. 读取和设置B端文字剪贴板
+Invoke-RemoteB @{operation='get_clipboard';requestId='clipboard-read-001';deviceId='<目标deviceId>'}
+Invoke-RemoteB @{
+  operation='set_clipboard';requestId='clipboard-write-001';deviceId='<目标deviceId>'
+  text='远程剪贴板文字'
+}
+
+【图形操作验证规则】
+1. 图形操作前先capture_screen，使用返回的虚拟桌面坐标范围计算点击位置。
+2. 每次点击、输入、启动或关闭窗口后再次capture_screen或list_windows验证结果。
+3. 优先用launch_app直接启动应用；无法定位应用时再使用画面识别和鼠标双击。
+4. 系统级文件、终端、服务和注册表操作继续优先使用独立接口；图形界面只用于需要真实窗口交互的任务。
+5. B端Codex通道在当前交互会话中运行，同时保留SYSTEM权限；启动普通桌面应用时自动切回当前登录用户令牌，保证窗口对用户可见。
+
+【推荐完整工作流】
+list_devices
+→ 选择且记录唯一deviceId
+→ get_workspace
+→ list/read确认远端当前状态
+→ mkdir/write/replace
+→ read复核写入结果
+→ shell执行格式化、构建、测试
+→ 检查流式stdout/stderr、completed.success和exitCode
+→ read/list复核最终产物
+→ 需要交付产物时read并使用dataBase64保存到本机
+→ 删除仅由本任务产生的临时文件
+
+如果任务需要图形界面验证，直接使用capture_screen、鼠标、键盘、窗口和launch_app操作，不要求用户另外打开A端“桌面控制”窗口。文件、命令、代码、构建和测试仍优先使用Codex独立通道。

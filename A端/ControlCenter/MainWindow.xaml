@@ -1,0 +1,607 @@
+<Window x:Class="ControlCenter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="小陈远控QQ;3890053645" Width="1360" Height="860" MinWidth="1200" MinHeight="760" WindowStartupLocation="CenterScreen"
+        Background="#0F1117" FontFamily="Segoe UI" FontSize="14">
+  <Window.Resources>
+    <Style x:Key="TileButton" TargetType="Button">
+      <Setter Property="Height" Value="96" />
+      <Setter Property="Width" Value="118" />
+      <Setter Property="Margin" Value="8" />
+      <Setter Property="Background" Value="#1F2430" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderBrush" Value="#303848" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontSize" Value="14" />
+    </Style>
+    <Style x:Key="ToolButton" TargetType="Button">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinWidth" Value="82" />
+      <Setter Property="Margin" Value="4" />
+      <Setter Property="Padding" Value="10,0" />
+    </Style>
+    <Style TargetType="ListBoxItem">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style TargetType="DataGrid">
+      <Setter Property="AutoGenerateColumns" Value="False" />
+      <Setter Property="IsReadOnly" Value="True" />
+      <Setter Property="CanUserAddRows" Value="False" />
+      <Setter Property="CanUserResizeRows" Value="False" />
+      <Setter Property="GridLinesVisibility" Value="Horizontal" />
+      <Setter Property="HorizontalGridLinesBrush" Value="#E5E7EB" />
+      <Setter Property="HeadersVisibility" Value="Column" />
+      <Setter Property="RowHeight" Value="42" />
+      <Setter Property="ColumnHeaderHeight" Value="42" />
+      <Setter Property="Background" Value="White" />
+      <Setter Property="BorderBrush" Value="#E2E8F0" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="SelectionMode" Value="Single" />
+      <Setter Property="SelectionUnit" Value="FullRow" />
+    </Style>
+    <Style x:Key="Win11Card" TargetType="Border">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="BorderBrush" Value="#E2E8F0" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+    <Style x:Key="NavIconButton" TargetType="Button">
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="38" />
+      <Setter Property="Margin" Value="0,0,7,0" />
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="Background" Value="#F8FAFC" />
+      <Setter Property="BorderBrush" Value="#CBD5E1" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+  </Window.Resources>
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="310" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+    <Border Grid.Column="0" Background="#11141B" BorderBrush="#2A2F3A" BorderThickness="0,0,1,0">
+      <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top">
+          <Button Content="刷新" Height="34" Margin="0,0,0,12" Click="RefreshDeviceView_Click" />
+          <TextBlock Text="我的设备" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,8" />
+        </StackPanel>
+        <ListBox x:Name="DeviceList" ItemsSource="{Binding Devices}" SelectionChanged="DeviceList_SelectionChanged"
+                 Background="Transparent" BorderThickness="0" Foreground="White"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Border Padding="10" Margin="0,3" Background="#1A1F2A" CornerRadius="6" HorizontalAlignment="Stretch">
+                <Border.ContextMenu>
+                  <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                    <MenuItem Header="重启" Click="RestartDevice_Click"/>
+                    <MenuItem Header="关机" Click="ShutdownDevice_Click"/>
+                    <MenuItem Header="锁屏" Click="LockDevice_Click"/>
+                    <Separator/>
+                    <MenuItem Header="{Binding HideTrayMenuHeader}" IsEnabled="{Binding IsOnline}" Click="ToggleHideTray_Click"/>
+                    <MenuItem Header="{Binding StartupMenuHeader}" IsEnabled="{Binding IsOnline}" Click="ToggleStartup_Click"/>
+                    <MenuItem Header="修改备注" Click="RemarkDevice_Click"/>
+                    <MenuItem Header="删除设备" Click="DeleteDevice_Click"/>
+                  </ContextMenu>
+                </Border.ContextMenu>
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="{Binding DisplayTitle}" FontSize="15" FontWeight="SemiBold" Foreground="White" />
+                    <TextBlock Text="{Binding RemarkLine}" FontSize="12" Foreground="#A8B0BF" />
+                    <TextBlock Text="{Binding RemoteEndPoint}" FontSize="12" Foreground="#687385" />
+                  </StackPanel>
+                  <Border Grid.Column="1" Background="{Binding StatusBackground}" CornerRadius="4" Padding="6,2" VerticalAlignment="Top">
+                    <TextBlock Text="{Binding Status}" Foreground="{Binding StatusForeground}" FontSize="12" />
+                  </Border>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Column="1" Background="#F4F6FA">
+      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
+      <TabControl x:Name="MainTabs" Grid.Row="0" Margin="18" SelectionChanged="MainTabs_SelectionChanged">
+        <TabItem Header="首页">
+          <ScrollViewer>
+            <StackPanel Margin="8">
+              <WrapPanel>
+                <Button Style="{StaticResource TileButton}" Content="🖥 桌面控制" Tag="Control" Click="OpenDesktopTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="👁 桌面观看" Tag="View" Click="OpenDesktopTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="📁 远程文件" Click="OpenFilesTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="⌨ CMD/PS" Click="OpenTerminalTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="⚙ 进程管理" Click="OpenProcessTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="🔧 服务管理" Click="OpenServiceTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="🧩 注册表" Click="OpenRegistryTab_Click" />
+                <Button Style="{StaticResource TileButton}" Content="ℹ 系统信息" Click="SystemInfo_Click" />
+                <Button Style="{StaticResource TileButton}"
+                        Content="⬇ 生成被控端"
+                        Click="GenerateAgent_Click" />
+              </WrapPanel>
+              <GroupBox Header="设备信息 / Windows 信息" Margin="0,8,0,0">
+                <Grid Margin="14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <TextBlock Text="设备名称" FontWeight="SemiBold"/><TextBlock x:Name="InfoMachine" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="1" Text="处理器" FontWeight="SemiBold"/><TextBlock x:Name="InfoProcessor" Grid.Row="1" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="2" Text="机带 RAM" FontWeight="SemiBold"/><TextBlock x:Name="InfoRam" Grid.Row="2" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="3" Text="图形卡" FontWeight="SemiBold"/><TextBlock x:Name="InfoGpu" Grid.Row="3" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="4" Text="存储" FontWeight="SemiBold"/><TextBlock x:Name="InfoStorage" Grid.Row="4" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="5" Text="设备 ID" FontWeight="SemiBold"/><TextBlock x:Name="InfoDeviceId" Grid.Row="5" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="6" Text="产品 ID" FontWeight="SemiBold"/><TextBlock x:Name="InfoProductId" Grid.Row="6" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="7" Text="系统类型" FontWeight="SemiBold"/><TextBlock x:Name="InfoSystemType" Grid.Row="7" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="8" Text="笔和触控" FontWeight="SemiBold"/><TextBlock x:Name="InfoPenTouch" Grid.Row="8" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="9" Text="本机IP" FontWeight="SemiBold"/><TextBlock x:Name="InfoIp" Grid.Row="9" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                </Grid>
+              </GroupBox>
+              <GroupBox Header="Windows 信息" Margin="0,10,0,0">
+                <Grid Margin="14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <TextBlock Text="版本" FontWeight="SemiBold"/><TextBlock x:Name="InfoOs" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="1" Text="版本号" FontWeight="SemiBold"/><TextBlock x:Name="InfoDisplayVersion" Grid.Row="1" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="2" Text="安装日期" FontWeight="SemiBold"/><TextBlock x:Name="InfoInstallDate" Grid.Row="2" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="3" Text="操作系统版本" FontWeight="SemiBold"/><TextBlock x:Name="InfoOsBuild" Grid.Row="3" Grid.Column="1" Text="-"/>
+                  <TextBlock Grid.Row="4" Text="功能包" FontWeight="SemiBold"/><TextBlock x:Name="InfoExperience" Grid.Row="4" Grid.Column="1" Text="-" TextWrapping="Wrap"/>
+                </Grid>
+              </GroupBox>            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+
+        <TabItem Header="&#x684c;&#x9762;&#x63a7;&#x5236;">
+          <Grid Margin="8">
+            <Button Content="&#x6253;&#x5f00;&#x5b9e;&#x65f6;&#x8fdc;&#x7a0b;&#x684c;&#x9762;"
+                    Width="520" Height="44"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Tag="Control" Click="StartView_Click"/>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="远程文件">
+          <Grid Background="#F3F6FB">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="60"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="28"/>
+            </Grid.RowDefinitions>
+
+            <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="14,10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button Content="←" ToolTip="后退" Style="{StaticResource NavIconButton}" Click="FileBack_Click"/>
+                  <Button Content="→" ToolTip="前进" Style="{StaticResource NavIconButton}" Click="FileForward_Click"/>
+                  <Button Content="↑" ToolTip="上一级" Style="{StaticResource NavIconButton}" Click="ParentDir_Click"/>
+                </StackPanel>
+                <TextBox x:Name="PathBox" Grid.Column="1" Text="此电脑" Height="38" Margin="6,0,0,0"
+                         FontSize="14" Padding="10,0" Background="#F8FAFC" BorderBrush="#CBD5E1"
+                         VerticalContentAlignment="Center" KeyDown="PathBox_KeyDown"/>
+              </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Margin="12" Background="White" BorderBrush="#E2E8F0"
+                    BorderThickness="1" CornerRadius="10" Padding="8">
+              <ListBox x:Name="FileGrid" ItemsSource="{Binding FileItemsView}" BorderThickness="0"
+                       Background="White" SelectionMode="Extended"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                       ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       MouseDoubleClick="FileGrid_MouseDoubleClick"
+                       PreviewMouseRightButtonDown="FileGrid_PreviewMouseRightButtonDown"
+                       PreviewMouseMove="FileGrid_PreviewMouseMove"
+                       PreviewMouseLeftButtonDown="FileGrid_PreviewMouseLeftButtonDown"
+                       AllowDrop="True"
+                       PreviewDragEnter="FileGrid_DragEnter"
+                       PreviewDragOver="FileGrid_DragEnter"
+                       PreviewDrop="FileGrid_Drop">
+                <ListBox.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel IsItemsHost="True" Orientation="Horizontal"/>
+                  </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemContainerStyle>
+                  <Style TargetType="ListBoxItem">
+                    <Setter Property="Width" Value="132"/>
+                    <Setter Property="Height" Value="116"/>
+                    <Setter Property="Margin" Value="5"/>
+                    <Setter Property="Padding" Value="7"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                    <Setter Property="ToolTip" Value="{Binding FullPath}"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsDrive}" Value="True">
+                        <Setter Property="Width" Value="310"/>
+                        <Setter Property="Height" Value="92"/>
+                        <Setter Property="Margin" Value="7"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Grid>
+                      <Grid x:Name="RegularFileTile">
+                        <Grid.RowDefinitions>
+                          <RowDefinition Height="70"/>
+                          <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Image Source="{Binding Icon}" Width="58" Height="58" Stretch="Uniform"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Text="{Binding Name}" Foreground="#111827"
+                                   FontSize="13" TextAlignment="Center" TextWrapping="Wrap"
+                                   TextTrimming="CharacterEllipsis" MaxHeight="38"
+                                   HorizontalAlignment="Stretch" VerticalAlignment="Top"/>
+                      </Grid>
+                      <Border x:Name="DriveTile" Visibility="Collapsed" Padding="8"
+                              Background="#FFFFFF" CornerRadius="5">
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="62"/>
+                            <ColumnDefinition Width="*"/>
+                          </Grid.ColumnDefinitions>
+                          <Image Source="{Binding Icon}" Width="52" Height="52" Stretch="Uniform"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                          <Grid Grid.Column="1" Margin="8,0,2,0" VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                              <RowDefinition Height="Auto"/>
+                              <RowDefinition Height="16"/>
+                              <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="{Binding Name}" Foreground="#111827" FontSize="14"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <ProgressBar Grid.Row="1" Height="13" Margin="0,3,0,0"
+                                         Minimum="0" Maximum="100" Value="{Binding UsedPercent, Mode=OneWay}">
+                              <ProgressBar.Style>
+                                <Style TargetType="ProgressBar">
+                                  <Setter Property="Foreground" Value="#1677FF"/>
+                                  <Setter Property="Background" Value="#E5E7EB"/>
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLowSpace}" Value="True">
+                                      <Setter Property="Foreground" Value="#D92D20"/>
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </ProgressBar.Style>
+                            </ProgressBar>
+                            <TextBlock Grid.Row="2" Text="{Binding SecondaryText}" Foreground="#64748B"
+                                       FontSize="12" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                          </Grid>
+                        </Grid>
+                      </Border>
+                    </Grid>
+                    <DataTemplate.Triggers>
+                      <DataTrigger Binding="{Binding IsDrive}" Value="True">
+                        <Setter TargetName="RegularFileTile" Property="Visibility" Value="Collapsed"/>
+                        <Setter TargetName="DriveTile" Property="Visibility" Value="Visible"/>
+                      </DataTrigger>
+                    </DataTemplate.Triggers>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+                <ListBox.ContextMenu>
+                    <ContextMenu Opened="FileContextMenu_Opened">
+                      <MenuItem x:Name="FileOpenMenu" Header="使用A端本地软件打开" Click="OpenRemoteFile_Click"/>
+                      <MenuItem x:Name="FileDownloadMenu" Header="下载到本机" Click="DownloadFile_Click"/>
+                      <MenuItem x:Name="FileUploadMenu" Header="上传到当前目录" Click="UploadFile_Click"/>
+                      <Separator/>
+                      <MenuItem x:Name="FileRenameMenu" Header="重命名" Click="RenamePath_Click"/>
+                      <MenuItem x:Name="FileDeleteMenu" Header="删除" Click="DeletePath_Click"/>
+                      <MenuItem x:Name="FilePropertiesMenu" Header="属性" Click="FileProperties_Click"/>
+                      <Separator/>
+                      <MenuItem x:Name="FileNewFolderMenu" Header="新建文件夹" Click="CreateFolder_Click"/>
+                      <MenuItem Header="刷新" Click="ListDirectory_Click"/>
+                    </ContextMenu>
+                </ListBox.ContextMenu>
+              </ListBox>
+            </Border>
+
+            <TextBlock x:Name="FileStatus" Grid.Row="2" Margin="14,0" Foreground="#64748B"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="终端">
+          <Grid Margin="10">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Style="{StaticResource Win11Card}" Padding="10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="150"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="92"/>
+                  <ColumnDefinition Width="92"/>
+                </Grid.ColumnDefinitions>
+                <ComboBox x:Name="ShellBox" Height="40" SelectedIndex="0" FontSize="14"
+                          VerticalContentAlignment="Center">
+                  <ComboBoxItem Content="PowerShell"/>
+                  <ComboBoxItem Content="CMD"/>
+                </ComboBox>
+                <TextBox x:Name="CmdArgs" Grid.Column="1" Text="" Height="40"
+                         Margin="10,0" Padding="10,0" FontFamily="Consolas" FontSize="15"
+                         VerticalContentAlignment="Center" KeyDown="CmdArgs_KeyDown"/>
+                <Button x:Name="TerminalRunButton" Grid.Column="2" Content="执行" Height="40"
+                         FontSize="14" Click="RunCommand_Click"/>
+                <Button x:Name="TerminalStopButton" Grid.Column="3" Content="停止" Height="40"
+                        Margin="8,0,0,0" FontSize="14" IsEnabled="False"
+                        Click="CancelTerminalCommand_Click"/>
+              </Grid>
+            </Border>
+            <Border Grid.Row="1" Margin="0,10,0,0" Background="#111827" BorderBrush="#334155"
+                    BorderThickness="1" CornerRadius="10" Padding="12">
+              <TextBox x:Name="CommandOutput" FontFamily="Consolas" FontSize="15"
+                       Foreground="#E5E7EB" Background="Transparent" BorderThickness="0"
+                       AcceptsReturn="True" IsReadOnly="True" TextWrapping="NoWrap"
+                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBox.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="终止最近运行的命令" Click="CancelTerminalCommand_Click"/>
+                    <Separator/>
+                    <MenuItem Header="清空输出" Click="ClearTerminalOutput_Click"/>
+                  </ContextMenu>
+                </TextBox.ContextMenu>
+              </TextBox>
+            </Border>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="进程管理">
+          <Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Style="{StaticResource Win11Card}" Padding="10">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Button Content="刷新" Width="82" Height="38" Click="ProcessList_Click"/>
+                <Button Grid.Column="1" Content="结束任务" Width="96" Height="38" Margin="8,0,0,0" Click="ProcessKill_Click"/>
+                <TextBox x:Name="ProcessSearch" Grid.Column="2" Height="38" Margin="14,0,0,0"
+                         Padding="10,0" VerticalContentAlignment="Center" TextChanged="ProcessSearch_TextChanged"/>
+              </Grid>
+            </Border>
+            <Border Grid.Row="1" Margin="0,10,0,0" Background="White"
+                    BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="42"/>
+                  <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Background="#F8FAFC">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="300"/>
+                    <ColumnDefinition Width="90"/>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="120"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="名称" Margin="12,0" VerticalAlignment="Center" Foreground="#475569"/>
+                  <TextBlock Grid.Column="1" Text="PID" Margin="8,0" VerticalAlignment="Center" Foreground="#475569"/>
+                  <TextBlock Grid.Column="2" Text="CPU" Margin="8,0" VerticalAlignment="Center" Foreground="#475569"/>
+                  <TextBlock Grid.Column="3" Text="内存" Margin="8,0" VerticalAlignment="Center" Foreground="#475569"/>
+                  <TextBlock Grid.Column="4" Text="窗口标题" Margin="8,0" VerticalAlignment="Center" Foreground="#475569"/>
+                </Grid>
+                <ListBox x:Name="ProcessGrid" Grid.Row="1" ItemsSource="{Binding ProcessesView}"
+                         BorderThickness="0" Background="White"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                  <ListBox.GroupStyle>
+                    <GroupStyle>
+                      <GroupStyle.ContainerStyle>
+                        <Style TargetType="GroupItem">
+                          <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                          <Setter Property="Template">
+                            <Setter.Value>
+                              <ControlTemplate TargetType="GroupItem">
+                                <Expander Background="White"
+                                          Loaded="ProcessGroup_Loaded"
+                                          Expanded="ProcessGroup_Expanded"
+                                          Collapsed="ProcessGroup_Collapsed"
+                                          HorizontalContentAlignment="Stretch">
+                                  <Expander.Header>
+                                    <StackPanel Orientation="Horizontal" Margin="8,9,0,7">
+                                      <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" Foreground="#111827"/>
+                                      <TextBlock Text=" (" FontSize="16" Foreground="#64748B"/>
+                                      <TextBlock Text="{Binding ItemCount}" FontSize="16" Foreground="#64748B"/>
+                                      <TextBlock Text=")" FontSize="16" Foreground="#64748B"/>
+                                    </StackPanel>
+                                  </Expander.Header>
+                                  <ItemsPresenter/>
+                                </Expander>
+                              </ControlTemplate>
+                            </Setter.Value>
+                          </Setter>
+                        </Style>
+                      </GroupStyle.ContainerStyle>
+                    </GroupStyle>
+                  </ListBox.GroupStyle>
+                  <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                      <Setter Property="Height" Value="42"/>
+                      <Setter Property="Padding" Value="0"/>
+                      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                      <Setter Property="BorderBrush" Value="#E5E7EB"/>
+                      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                    </Style>
+                  </ListBox.ItemContainerStyle>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="300"/>
+                          <ColumnDefinition Width="90"/>
+                          <ColumnDefinition Width="100"/>
+                          <ColumnDefinition Width="120"/>
+                          <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Margin="12,0">
+                          <Image Source="{Binding Icon}" Width="22" Height="22" Margin="0,0,9,0"/>
+                          <TextBlock Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding Id}" Margin="8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding CpuText}" Margin="8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding MemoryText}" Margin="8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="4" Text="{Binding MainWindowTitle}" Margin="8,0"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                  <ListBox.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="结束进程" Click="ProcessKill_Click"/>
+                      <MenuItem Header="复制PID" Click="CopyPid_Click"/>
+                    </ContextMenu>
+                  </ListBox.ContextMenu>
+                </ListBox>
+              </Grid>
+            </Border>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="服务管理">
+          <Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Style="{StaticResource Win11Card}" Padding="10">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Button Content="刷新服务" Height="38" Click="ServiceList_Click"/>
+                <TextBox x:Name="ServiceSearch" Grid.Column="1" Height="38" Margin="14,0,0,0"
+                         Padding="10,0" VerticalContentAlignment="Center" TextChanged="ServiceSearch_TextChanged"/>
+              </Grid>
+            </Border>
+            <DataGrid x:Name="ServiceGrid" Grid.Row="1" ItemsSource="{Binding ServicesView}" Margin="0,10,0,0"
+                      MouseDoubleClick="ServiceProperties_Click"
+                      PreviewMouseRightButtonDown="ServiceGrid_PreviewMouseRightButtonDown">
+              <DataGrid.ContextMenu>
+                <ContextMenu>
+                  <MenuItem Header="启动" Tag="Start" Click="ServiceControl_Click"/>
+                  <MenuItem Header="停止" Tag="Stop" Click="ServiceControl_Click"/>
+                  <MenuItem Header="重启" Tag="Restart" Click="ServiceControl_Click"/>
+                  <Separator/>
+                  <MenuItem Header="暂停" Tag="Pause" Click="ServiceControl_Click"/>
+                  <MenuItem Header="继续" Tag="Continue" Click="ServiceControl_Click"/>
+                  <Separator/>
+                  <MenuItem Header="启动类型">
+                    <MenuItem Header="自动（延迟启动）" Tag="AutomaticDelayed" Click="ServiceStartType_Click"/>
+                    <MenuItem Header="自动" Tag="Automatic" Click="ServiceStartType_Click"/>
+                    <MenuItem Header="手动" Tag="Manual" Click="ServiceStartType_Click"/>
+                    <MenuItem Header="禁用" Tag="Disabled" Click="ServiceStartType_Click"/>
+                  </MenuItem>
+                  <Separator/>
+                  <MenuItem Header="属性" Click="ServiceProperties_Click"/>
+                  <MenuItem Header="刷新" Click="ServiceList_Click"/>
+                </ContextMenu>
+              </DataGrid.ContextMenu>
+              <DataGrid.Columns>
+                <DataGridTemplateColumn Header="状态" Width="90">
+                  <DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal"><Ellipse Width="9" Height="9" Fill="{Binding StatusBrush}" Margin="0,0,8,0"/><TextBlock Text="{Binding StatusText}"/></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="显示名称" Binding="{Binding DisplayName}" Width="*"/>
+                <DataGridTextColumn Header="服务名称" Binding="{Binding ServiceName}" Width="230"/>
+                <DataGridTextColumn Header="启动类型" Binding="{Binding StartTypeText}" Width="130"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="注册表">
+          <Grid Margin="10">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Style="{StaticResource Win11Card}" Padding="10">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="124"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="86"/>
+                  <ColumnDefinition Width="86"/>
+                </Grid.ColumnDefinitions>
+                <Button Content="↑" ToolTip="上一级" Width="42" Height="38" Click="RegistryParent_Click"/>
+                <ComboBox x:Name="RegistryViewBox" Grid.Column="1" Height="38" Margin="10,0"
+                          SelectedIndex="0" VerticalContentAlignment="Center"
+                          SelectionChanged="RegistryViewBox_SelectionChanged">
+                  <ComboBoxItem Content="64 位视图"/>
+                  <ComboBoxItem Content="32 位视图"/>
+                </ComboBox>
+                <TextBox x:Name="RegistryPathBox" Grid.Column="2" Height="38"
+                         Padding="10,0" FontFamily="Consolas" FontSize="14"
+                         VerticalContentAlignment="Center" KeyDown="RegistryPathBox_KeyDown"/>
+                <Button Grid.Column="3" Content="转到" Height="38" Margin="10,0,0,0" Click="RegistryGo_Click"/>
+                <Button Grid.Column="4" Content="刷新" Height="38" Margin="10,0,0,0" Click="RegistryRefresh_Click"/>
+              </Grid>
+            </Border>
+            <Grid Grid.Row="1" Margin="0,10,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="310"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Border Style="{StaticResource Win11Card}" Padding="4">
+                <TreeView x:Name="RegistryTree" ItemsSource="{Binding RegistryRoots}"
+                          BorderThickness="0" Background="White"
+                          PreviewMouseRightButtonDown="RegistryTree_PreviewMouseRightButtonDown"
+                          SelectedItemChanged="RegistryTree_SelectedItemChanged">
+                  <TreeView.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="新建项" Click="RegistryCreateKey_Click"/>
+                      <MenuItem Header="重命名" Click="RegistryRenameKey_Click"/>
+                      <MenuItem Header="删除" Click="RegistryDeleteKey_Click"/>
+                      <Separator/>
+                      <MenuItem Header="刷新" Click="RegistryRefresh_Click"/>
+                    </ContextMenu>
+                  </TreeView.ContextMenu>
+                  <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                      <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                      <EventSetter Event="Expanded" Handler="RegistryTreeItem_Expanded"/>
+                    </Style>
+                  </TreeView.ItemContainerStyle>
+                  <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                      <StackPanel Orientation="Horizontal" Margin="2">
+                        <TextBlock Text="▸" Foreground="#EAB308" Margin="0,0,7,0"/>
+                        <TextBlock Text="{Binding DisplayName}"/>
+                      </StackPanel>
+                    </HierarchicalDataTemplate>
+                  </TreeView.ItemTemplate>
+                </TreeView>
+              </Border>
+              <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent"/>
+              <DataGrid x:Name="RegistryValueGrid" Grid.Column="2"
+                        ItemsSource="{Binding RegistryValues}"
+                        PreviewMouseRightButtonDown="RegistryValueGrid_PreviewMouseRightButtonDown"
+                        MouseDoubleClick="RegistryValueGrid_MouseDoubleClick">
+                <DataGrid.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="新建">
+                      <MenuItem Header="字符串值" Tag="String" Click="RegistryCreateValue_Click"/>
+                      <MenuItem Header="可扩充字符串值" Tag="ExpandString" Click="RegistryCreateValue_Click"/>
+                      <MenuItem Header="多字符串值" Tag="MultiString" Click="RegistryCreateValue_Click"/>
+                      <MenuItem Header="二进制值" Tag="Binary" Click="RegistryCreateValue_Click"/>
+                      <MenuItem Header="DWORD（32位）值" Tag="DWord" Click="RegistryCreateValue_Click"/>
+                      <MenuItem Header="QWORD（64位）值" Tag="QWord" Click="RegistryCreateValue_Click"/>
+                    </MenuItem>
+                    <Separator/>
+                    <MenuItem Header="修改" Click="RegistryModifyValue_Click"/>
+                    <MenuItem Header="重命名" Click="RegistryRenameValue_Click"/>
+                    <MenuItem Header="删除" Click="RegistryDeleteValue_Click"/>
+                    <Separator/>
+                    <MenuItem Header="刷新" Click="RegistryRefresh_Click"/>
+                  </ContextMenu>
+                </DataGrid.ContextMenu>
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="220"/>
+                  <DataGridTextColumn Header="类型" Binding="{Binding Type}" Width="130"/>
+                  <DataGridTextColumn Header="数据" Binding="{Binding Data}" Width="*"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </Grid>
+          </Grid>
+        </TabItem>
+      </TabControl>
+      <StatusBar Grid.Row="1"><StatusBarItem x:Name="StatusItem" Content="未监听"/></StatusBar>
+    </Grid>
+  </Grid>
+</Window>
+
+

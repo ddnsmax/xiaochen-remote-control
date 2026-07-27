@@ -1,0 +1,22 @@
+<Window x:Class="ControlCenter.PromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="输入" Width="440" Height="220" MinHeight="220" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" Background="#F4F6FA">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <TextBlock x:Name="TitleText" FontSize="17" FontWeight="SemiBold" Foreground="#1E2430"/>
+    <TextBlock x:Name="MessageText" Grid.Row="1" Margin="0,8,0,8" Foreground="#657085" TextWrapping="Wrap"/>
+    <TextBox x:Name="InputBox" Grid.Row="2" Height="36" MinHeight="36"
+             Padding="8,0" VerticalContentAlignment="Center"/>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="取消" Width="78" Margin="0,0,8,0" IsCancel="True"/>
+      <Button Content="确定" Width="78" IsDefault="True" Click="Ok_Click"/>
+    </StackPanel>
+  </Grid>
+</Window>
