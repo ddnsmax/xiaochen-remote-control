@@ -1,4 +1,4 @@
-# 小陈远控QQ;3890053645 v1.0
+# 小陈远控QQ:3890053645 v1.0
 
 Windows A/B 双端远程管理软件，固定使用 TCP/UDP 27183。A端为控制端，B端打开后自动连接。
 
@@ -12,12 +12,4 @@ Windows A/B 双端远程管理软件，固定使用 TCP/UDP 27183。A端为控�
 - B端开机启动、托盘显示/隐藏
 - A端按域名生成单文件B端
 - Codex经A端操作B端
-- 在线删除设备时远程停止并删除对应B端
-
-## 构建
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\构建交付.ps1
-```
-
-输出位于同级 `交付` 目录。
+  
