@@ -103,8 +103,6 @@ public partial class App : System.Windows.Application
     var window = new MainWindow(
       sessionHelper: helper,
       statusOnly: statusUi || !helper && !integrationTest,
-      inputOnly: false,
-      excludeInput: false,
       instanceId: instanceId,
       startHidden: statusUi,
       serviceOwnedStatusUi: statusUi);

@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 
 namespace RemoteControl.Shared;
@@ -11,8 +10,8 @@ public enum MessageType
   Heartbeat = 1,
   SystemInfoRequest = 2,
   SystemInfoResponse = 3,
-  ScreenStreamStart = 4,
-  ScreenStreamStop = 5,
+  ReservedLegacyScreenStreamStart = 4,
+  ReservedLegacyScreenStreamStop = 5,
   CommandRequest = 6,
   CommandResponse = 7,
   DrivesRequest = 8,
@@ -52,31 +51,35 @@ public enum MessageType
   PowerActionResponse = 42,
   AgentSettingsUpdateRequest = 43,
   AgentSettingsUpdateResponse = 44,
-  AudioStreamStart = 45,
-  AudioStreamStartResponse = 46,
-  AudioStreamStop = 47,
-  AudioStreamStopResponse = 48,
+  ReservedLegacyAudioStreamStart = 45,
+  ReservedLegacyAudioStreamStartResponse = 46,
+  ReservedLegacyAudioStreamStop = 47,
+  ReservedLegacyAudioStreamStopResponse = 48,
   AgentUninstallRequest = 49,
-  AgentUninstallResponse = 50
+  AgentUninstallResponse = 50,
+  RustDeskSessionStartRequest = 51,
+  RustDeskSessionStartResponse = 52,
+  RustDeskSessionStopRequest = 53,
+  RustDeskSessionStopResponse = 54
 }
 
 public static class ProtocolVersions
 {
-  public const int Current = 16;
+  public const int Current = 17;
 }
 
 [Flags]
-public enum DesktopTransportCapabilities
+public enum RemoteDesktopCapabilities
 {
   None = 0,
-  UdpH264 = 1,
-  TcpH264Fallback = 2,
-  UdpInput = 4,
-  TcpInputFallback = 8,
-  InstanceBoundSessions = 16,
-  UdpOpusAudio = 32,
-  Current = UdpH264 | TcpH264Fallback | UdpInput | TcpInputFallback |
-            InstanceBoundSessions | UdpOpusAudio
+  RustDeskDirect = 1,
+  SecureDesktop = 2,
+  ViewOnly = 4,
+  Clipboard = 8,
+  Audio = 16,
+  FileTransfer = 32,
+  Current = RustDeskDirect | SecureDesktop | ViewOnly | Clipboard | Audio |
+            FileTransfer
 }
 
 public sealed class RemoteMessage
@@ -96,8 +99,8 @@ public sealed record HelloPayload(
   string OperatingSystem,
   string AgentVersion,
   int ProtocolVersion = 0,
-  DesktopTransportCapabilities DesktopCapabilities =
-    DesktopTransportCapabilities.None,
+  RemoteDesktopCapabilities DesktopCapabilities =
+    RemoteDesktopCapabilities.None,
   bool StartupEnabled = false,
   bool HideTray = false);
 public sealed record SystemInfoPayload(string MachineName, string UserName, string OperatingSystem, string ProcessorCount, string WorkingSetMb, string CurrentDirectory, string LocalIpAddresses);
@@ -177,7 +180,7 @@ public sealed record ServiceDetailsPayload(
   bool CanStop,
   bool CanPauseAndContinue);
 
-public sealed record DesktopSessionPayload(string SessionId);
+public sealed record RustDeskSessionPayload(long SessionId, bool ViewOnly = false);
 public sealed record AgentUninstallPayload(string DeviceId);
 public enum RegistryViewMode
 {
@@ -232,106 +235,6 @@ public sealed record RegistryWatchPayload(
 public sealed record RegistryChangedPayload(string Hive, string SubKey, RegistryViewMode View);
 public sealed record ErrorPayload(string Message);
 
-public enum VideoCodec : int { H264 = 2 }
-public sealed record RemoteVideoFrame(
-  VideoCodec Codec,
-  byte[] Data,
-  int Width,
-  int Height,
-  int SourceWidth,
-  int SourceHeight,
-  int SourceX,
-  int SourceY,
-  long FrameId,
-  bool KeyFrame,
-  long TimestampTicks,
-  Guid SessionId = default);
-
-public static class BinaryVideoProtocol
-{
-  private static readonly byte[] Magic = Encoding.ASCII.GetBytes("ADCVIDEO3");
-  private const int MaxFrameBytes = 32 * 1024 * 1024;
-
-  public static async Task WriteHelloAsync(NetworkStream stream, string deviceId, CancellationToken token)
-  {
-    byte[] id = Encoding.UTF8.GetBytes(deviceId);
-    if (id.Length <= 0 || id.Length > 4096) throw new InvalidOperationException("Invalid video channel device id length.");
-    byte[] header = new byte[Magic.Length + 4];
-    Magic.CopyTo(header, 0);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(Magic.Length), id.Length);
-    await stream.WriteAsync(header, token);
-    await stream.WriteAsync(id, token);
-    await stream.FlushAsync(token);
-  }
-
-  public static async Task<string?> ReadHelloAsync(NetworkStream stream, CancellationToken token)
-  {
-    byte[] header = new byte[Magic.Length + 4];
-    if (!await ReadExactAsync(stream, header, token)) return null;
-    if (!header.AsSpan(0, Magic.Length).SequenceEqual(Magic)) throw new InvalidOperationException("Invalid video channel handshake.");
-    int length = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(Magic.Length));
-    if (length <= 0 || length > 4096) throw new InvalidOperationException("Invalid video channel device id length.");
-    byte[] id = new byte[length];
-    if (!await ReadExactAsync(stream, id, token)) return null;
-    return Encoding.UTF8.GetString(id);
-  }
-
-  public static async Task WriteFrameAsync(NetworkStream stream, RemoteVideoFrame frame, CancellationToken token)
-  {
-    if (frame.Data.Length <= 0 || frame.Data.Length > MaxFrameBytes) throw new InvalidOperationException("Invalid video frame.");
-    byte[] header = new byte[68];
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0), (int)frame.Codec);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), frame.Width);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(8), frame.Height);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(12), frame.SourceWidth);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(16), frame.SourceHeight);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(20), frame.SourceX);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(24), frame.SourceY);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(28), frame.KeyFrame ? 1 : 0);
-    BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(32), frame.FrameId);
-    BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(40), frame.TimestampTicks);
-    BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(48), frame.Data.Length);
-    frame.SessionId.TryWriteBytes(header.AsSpan(52, 16));
-    await stream.WriteAsync(header, token);
-    await stream.WriteAsync(frame.Data, token);
-    await stream.FlushAsync(token);
-  }
-
-  public static async Task<RemoteVideoFrame?> ReadFrameAsync(NetworkStream stream, CancellationToken token)
-  {
-    byte[] header = new byte[68];
-    if (!await ReadExactAsync(stream, header, token)) return null;
-    var codec = (VideoCodec)BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(0));
-    int width = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4));
-    int height = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(8));
-    int sourceWidth = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(12));
-    int sourceHeight = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(16));
-    int sourceX = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(20));
-    int sourceY = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(24));
-    bool keyFrame = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(28)) != 0;
-    long frameId = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(32));
-    long ticks = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(40));
-    int length = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(48));
-    Guid sessionId = new(header.AsSpan(52, 16));
-    if (width <= 0 || height <= 0 || sourceWidth <= 0 || sourceHeight <= 0 || length <= 0 || length > MaxFrameBytes)
-      throw new InvalidOperationException("Invalid video frame.");
-    byte[] data = new byte[length];
-    if (!await ReadExactAsync(stream, data, token)) return null;
-    return new RemoteVideoFrame(codec, data, width, height, sourceWidth, sourceHeight, sourceX, sourceY, frameId, keyFrame, ticks, sessionId);
-  }
-
-  private static async Task<bool> ReadExactAsync(NetworkStream stream, byte[] buffer, CancellationToken token)
-  {
-    int offset = 0;
-    while (offset < buffer.Length)
-    {
-      int read = await stream.ReadAsync(buffer.AsMemory(offset, buffer.Length - offset), token);
-      if (read == 0) return false;
-      offset += read;
-    }
-    return true;
-  }
-}
 public static class MessagePayload
 {
   private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = false };

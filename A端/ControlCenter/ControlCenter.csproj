@@ -10,10 +10,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>2.5.0</Version>
-    <FileVersion>2.5.0.0</FileVersion>
-    <AssemblyVersion>2.5.0.0</AssemblyVersion>
-    <InformationalVersion>2.5-responsive-render-pump</InformationalVersion>
+    <Version>3.0.0</Version>
+    <FileVersion>3.0.0.0</FileVersion>
+    <AssemblyVersion>3.0.0.0</AssemblyVersion>
+    <InformationalVersion>3.0-rustdesk-remote-core</InformationalVersion>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
@@ -21,6 +21,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+    <EmbeddedResource Include="..\..\ThirdParty\RustDesk\RustDeskRuntime.zip"
+                      LogicalName="ControlCenter.RustDeskRuntime.zip" />
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
     <ProjectReference Include="..\..\Shared\RemoteControl.Shared\RemoteControl.Shared.csproj" />
@@ -30,36 +32,7 @@
                       LogicalName="ControlCenter.AgentTemplate.bin" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="H264Sharp" Version="1.6.0"
-                      IncludeAssets="none"
-                      GeneratePathProperty="true" />
-    <PackageReference Include="Lennox.LibYuvSharp" Version="1.1.2"
-                      IncludeAssets="none"
-                      GeneratePathProperty="true" />
     <PackageReference Include="VirtualFileDataObject" Version="1.0.0" />
-    <PackageReference Include="Concentus" Version="2.2.2" />
-    <PackageReference Include="NAudio" Version="2.3.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="H264Sharp">
-      <HintPath>$(PkgH264Sharp)\lib\netstandard2.0\H264Sharp.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="LibYuvSharp">
-      <HintPath>$(PkgLennox_LibYuvSharp)\lib\netstandard2.0\LibYuvSharp.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <None Include="..\..\ThirdParty\NativeBinaries\win-x64\H264SharpNative-win64.dll"
-          Link="H264SharpNative-win64.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\ThirdParty\NativeBinaries\win-x64\openh264-2.4.1-win64.dll"
-          Link="openh264-2.4.1-win64.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\ThirdParty\NativeBinaries\win-x64\libyuv_internal.dll"
-          Link="libyuv_internal.dll"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
+

@@ -61,7 +61,7 @@ public partial class MainWindow
       }
       try
       {
-        ForceStopScreenStream();
+        _rustDeskHost.Dispose();
         Disconnect();
       }
       catch { }

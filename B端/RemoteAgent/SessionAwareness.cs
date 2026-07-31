@@ -38,7 +38,6 @@ public partial class MainWindow
     Interlocked.Increment(ref _desktopEnvironmentGeneration);
     _inputDispatcher.QueueReleaseAll(
       Interlocked.Read(ref _desktopEnvironmentGeneration));
-    _videoQuality.ResetForNewSession();
     try { _ = WindowsAgentEnvironment.EnsureCodexWorkspace(); } catch { }
   }
 }

@@ -13,13 +13,11 @@ public static class NetworkDefaults
 public enum LogicalChannelType : int
 {
   Management = 1,
-  Video = 2,
-  Input = 3,
-  Clipboard = 4,
   File = 5,
   Terminal = 6,
   Registry = 7,
-  Codex = 8
+  Codex = 8,
+  RustDesk = 9
 }
 
 public sealed record LogicalChannelHello(

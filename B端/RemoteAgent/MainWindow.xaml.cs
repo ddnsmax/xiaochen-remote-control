@@ -1,4 +1,4 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 using RemoteControl.Shared;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -21,14 +21,15 @@ public partial class MainWindow : Window
 {
   private readonly string _deviceId = WindowsAgentEnvironment.LoadOrCreateMachineDeviceId();
   private readonly Guid _instanceId;
+  private readonly RustDeskHost _rustDeskHost;
+  private readonly WindowsInputInjector _inputInjector = new();
+  private readonly WindowsInputDispatcher _inputDispatcher;
   private string _controllerHost = NetworkDefaults.DefaultControllerHost;
   private int _controllerPort = NetworkDefaults.Port;
   private long _channelGeneration;
   private bool _everConnected;
   private readonly bool _sessionHelper;
   private readonly bool _statusOnly;
-  private readonly bool _inputOnly;
-  private readonly bool _excludeInput;
   private readonly bool _startHidden;
   private readonly bool _serviceOwnedStatusUi;
   private DispatcherTimer? _settingsTimer;
@@ -36,11 +37,7 @@ public partial class MainWindow : Window
   private CancellationTokenSource? _cts;
   private NetworkStream? _stream;
   private readonly SemaphoreSlim _sendLock = new(1, 1);
-  private CancellationTokenSource? _videoCts;
-  private volatile bool _videoStreaming;
-  private long _videoSessionGeneration;
-  private readonly object _desktopSessionGate = new();
-  private Guid _activeDesktopSession;
+  private CancellationTokenSource? _channelCts;
   private static readonly object ProcessSampleGate = new();
   private static readonly Dictionary<int, ProcessSample> PreviousProcessSamples = new();
   private static readonly ConcurrentDictionary<string, string> ProcessIconCache = new(StringComparer.OrdinalIgnoreCase);
@@ -53,13 +50,11 @@ public partial class MainWindow : Window
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
   [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
-  public MainWindow() : this(false, false, false, false, null, false, false) { }
+  public MainWindow() : this(false, false, null, false, false) { }
 
   internal MainWindow(
     bool sessionHelper,
     bool statusOnly,
-    bool inputOnly = false,
-    bool excludeInput = false,
     Guid? instanceId = null,
     bool startHidden = false,
     bool serviceOwnedStatusUi = false)
@@ -67,10 +62,9 @@ public partial class MainWindow : Window
     _instanceId = instanceId is { } value && value != Guid.Empty
       ? value
       : Guid.NewGuid();
+    _rustDeskHost = new RustDeskHost(_deviceId, _instanceId);
     _sessionHelper = sessionHelper;
     _statusOnly = statusOnly;
-    _inputOnly = inputOnly;
-    _excludeInput = excludeInput;
     _startHidden = startHidden;
     _serviceOwnedStatusUi = serviceOwnedStatusUi;
     _inputDispatcher = new WindowsInputDispatcher(_inputInjector);
@@ -80,27 +74,21 @@ public partial class MainWindow : Window
       "1",
       StringComparison.Ordinal);
     if (!_sessionHelper && !integrationTest) InitializeTraySupport();
-    if (!_statusOnly && !_inputOnly) InitializeSessionAwareness();
+    if (!_statusOnly) InitializeSessionAwareness();
     try { SetProcessDPIAware(); } catch { }
     _ = WindowsAgentEnvironment.EnsureCodexWorkspace();
-    if (!_statusOnly && !_inputOnly)
-      SourceInitialized += (_, _) => InitializeClipboardWatcher();
     if (_statusOnly)
       InitializeAgentStatusListener();
     Closed += (_, _) =>
     {
-      if (!_statusOnly && !_inputOnly)
-      {
-        DisposeClipboardWatcher();
-        DisposeSessionAwareness();
-      }
+      if (!_statusOnly) DisposeSessionAwareness();
       DisposeAgentStatusPipe();
       _settingsTimer?.Stop();
       _settingsTimer = null;
       DisposeTraySupport();
+      _rustDeskHost.Dispose();
       if (!_statusOnly)
       {
-        ForceStopScreenStream();
         Disconnect();
       }
       _inputDispatcher.Dispose();
@@ -148,29 +136,7 @@ public partial class MainWindow : Window
       if (_cts is null)
       {
         _cts = new CancellationTokenSource();
-        if (_inputOnly)
-        {
-          _ = Task.Run(
-            () => UdpInputLoopAsync(
-              _controllerHost,
-              _controllerPort,
-              _cts.Token),
-            _cts.Token);
-          _ = Task.Run(
-            () => TcpInputFallbackConnectLoopAsync(
-              _controllerHost,
-              _controllerPort,
-              _cts.Token),
-            _cts.Token);
-          _ = Task.Run(
-            () => CodexConnectLoopAsync(
-              _controllerHost,
-              _controllerPort,
-              _cts.Token),
-            _cts.Token);
-        }
-        else
-          StartConnectLoop(_cts.Token);
+        StartConnectLoop(_cts.Token);
       }
     };
   }
@@ -219,28 +185,19 @@ public partial class MainWindow : Window
           WindowsAgentEnvironment.GetInteractiveUserName(),
           Environment.MachineName,
           Environment.OSVersion.ToString(),
-          "3.3.0-codex-computer-bridge",
+          "3.0.0-rustdesk-remote-core",
           ProtocolVersions.Current,
-          DesktopTransportCapabilities.Current,
+          RemoteDesktopCapabilities.Current,
           settings.StartupEnabled,
           settings.HideTray), token);
         _everConnected = true;
         SetConnectionStatus("已链接");
-        _videoCts?.Cancel();
-        _videoCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        _ = Task.Run(() => TcpVideoFallbackConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        _ = Task.Run(() => UdpH264VideoLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        if (!_excludeInput)
-        {
-          _ = Task.Run(() => UdpInputLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-          _ = Task.Run(() => TcpInputFallbackConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        }
-        _ = Task.Run(() => ClipboardConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        _ = Task.Run(() => FileTransferConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        _ = Task.Run(() => TerminalConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        _ = Task.Run(() => RegistryConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
-        if (!_excludeInput)
-          _ = Task.Run(() => CodexConnectLoopAsync(host, port, _videoCts.Token), _videoCts.Token);
+        _channelCts?.Cancel();
+        _channelCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        _ = Task.Run(() => FileTransferConnectLoopAsync(host, port, _channelCts.Token), _channelCts.Token);
+        _ = Task.Run(() => TerminalConnectLoopAsync(host, port, _channelCts.Token), _channelCts.Token);
+        _ = Task.Run(() => RegistryConnectLoopAsync(host, port, _channelCts.Token), _channelCts.Token);
+        _ = Task.Run(() => CodexConnectLoopAsync(host, port, _channelCts.Token), _channelCts.Token);
         _ = Task.Run(() => HeartbeatLoopAsync(token), token);
         await ReadLoopAsync(token);
       }
@@ -252,8 +209,7 @@ public partial class MainWindow : Window
       }
       finally
       {
-        ForceStopScreenStream();
-        try { _videoCts?.Cancel(); CloseUdpDesktopClients(); CloseTcpDesktopFallbackChannels(); _clipboardStream?.Dispose(); _clipboardClient?.Close(); _fileStream?.Dispose(); _fileClient?.Close(); CloseDedicatedChannels(); CloseCodexChannel(); } catch { }
+        try { _channelCts?.Cancel(); _fileStream?.Dispose(); _fileClient?.Close(); CloseDedicatedChannels(); CloseCodexChannel(); } catch { }
         _stream?.Dispose(); _client?.Close(); _stream = null; _client = null;
         if (!token.IsCancellationRequested)
           SetConnectionStatus(_everConnected ? "已断开" : "未链接");
@@ -301,10 +257,8 @@ public partial class MainWindow : Window
       // Desktop lifecycle changes must preserve wire order. Dispatching Start
       // and Stop on unrelated worker tasks allowed a late Stop from an old
       // window to win over a newer Start.
-      if (msg.Type is MessageType.ScreenStreamStart or
-          MessageType.ScreenStreamStop or
-          MessageType.AudioStreamStart or
-          MessageType.AudioStreamStop or
+      if (msg.Type is MessageType.RustDeskSessionStartRequest or
+          MessageType.RustDeskSessionStopRequest or
           MessageType.AgentUninstallRequest)
         await HandleAsync(msg, token);
       else
@@ -320,36 +274,25 @@ public partial class MainWindow : Window
       {
         case MessageType.SystemInfoRequest:
           await ReplyAsync(msg, MessageType.SystemInfoResponse, GetDetailedSystemInfo(), token); break;
-        case MessageType.ScreenStreamStart:
+        case MessageType.RustDeskSessionStartRequest:
           await ReplyAsync(
             msg,
-            MessageType.ScreenStreamStart,
-            StartScreenStream(msg.Payload.As<DesktopSessionPayload>()
-              ?? throw new InvalidOperationException("远控会话参数无效。")),
+            MessageType.RustDeskSessionStartResponse,
+            await _rustDeskHost.StartSessionAsync(
+              msg.Payload.As<RustDeskSessionPayload>()
+                ?? throw new InvalidOperationException("RustDesk远控会话参数无效。"),
+              _controllerHost,
+              _controllerPort,
+              token),
             token);
           break;
-        case MessageType.ScreenStreamStop:
+        case MessageType.RustDeskSessionStopRequest:
           await ReplyAsync(
             msg,
-            MessageType.ScreenStreamStop,
-            StopScreenStream(msg.Payload.As<DesktopSessionPayload>()
-              ?? throw new InvalidOperationException("远控会话参数无效。")),
-            token);
-          break;
-        case MessageType.AudioStreamStart:
-          await ReplyAsync(
-            msg,
-            MessageType.AudioStreamStartResponse,
-            StartSystemAudio(msg.Payload.As<DesktopSessionPayload>()
-              ?? new DesktopSessionPayload(string.Empty)),
-            token);
-          break;
-        case MessageType.AudioStreamStop:
-          await ReplyAsync(
-            msg,
-            MessageType.AudioStreamStopResponse,
-            StopSystemAudio(msg.Payload.As<DesktopSessionPayload>()
-              ?? new DesktopSessionPayload(string.Empty)),
+            MessageType.RustDeskSessionStopResponse,
+            await _rustDeskHost.StopSessionAsync(
+              msg.Payload.As<RustDeskSessionPayload>()?.SessionId
+                ?? throw new InvalidOperationException("RustDesk远控会话参数无效。")),
             token);
           break;
         case MessageType.CommandRequest:
@@ -666,49 +609,6 @@ public partial class MainWindow : Window
     return ext is ".jpg" or ".jpeg" or ".png" or ".bmp" or ".gif" or ".webp";
   }
 
-  private OperationResultPayload StartScreenStream(DesktopSessionPayload request)
-  {
-    if (!Guid.TryParseExact(request.SessionId, "N", out Guid sessionId))
-      throw new InvalidOperationException("远控会话标识无效。");
-    lock (_desktopSessionGate)
-    {
-      _activeDesktopSession = sessionId;
-      Interlocked.Increment(ref _videoSessionGeneration);
-      _videoQuality.ResetForNewSession();
-      _videoStreaming = true;
-    }
-    return new(true, "屏幕推流已启动");
-  }
-
-  private OperationResultPayload StopScreenStream(DesktopSessionPayload request)
-  {
-    if (!Guid.TryParseExact(request.SessionId, "N", out Guid sessionId))
-      throw new InvalidOperationException("远控会话标识无效。");
-    lock (_desktopSessionGate)
-    {
-      if (_activeDesktopSession != sessionId)
-      {
-        return new(true, "过期会话已忽略");
-      }
-      _videoStreaming = false;
-      _activeDesktopSession = Guid.Empty;
-      _inputInjector.ReleaseAll();
-    }
-    StopSystemAudio(request);
-    return new(true, "屏幕推流已停止");
-  }
-
-  private void ForceStopScreenStream()
-  {
-    lock (_desktopSessionGate)
-    {
-      _videoStreaming = false;
-      _activeDesktopSession = Guid.Empty;
-      _inputInjector.ReleaseAll();
-    }
-    ForceStopSystemAudio();
-  }
-
   private static List<ProcessInfoPayload> ListProcesses()
   {
     DateTime now = DateTime.UtcNow;
@@ -938,11 +838,10 @@ public partial class MainWindow : Window
 
   private void Disconnect()
   {
-    ForceStopScreenStream();
     CloseCodexChannel();
     _cts?.Cancel();
     _cts = null;
-    CloseUdpDesktopClients();
+    _channelCts?.Cancel();
     _stream?.Dispose();
     _client?.Close();
     SetConnectionStatus(_everConnected ? "已断开" : "未链接");
@@ -965,6 +864,7 @@ public partial class MainWindow : Window
     else _ = Dispatcher.BeginInvoke(Apply, DispatcherPriority.Background);
   }
 }
+
 
 
 

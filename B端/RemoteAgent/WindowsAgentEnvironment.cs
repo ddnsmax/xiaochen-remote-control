@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
@@ -69,6 +70,34 @@ internal static class WindowsAgentEnvironment
       }
       catch { }
     }
+    try
+    {
+      using RegistryKey? profiles = Registry.LocalMachine.OpenSubKey(
+        @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList");
+      if (profiles is null) return;
+      foreach (string sid in profiles.GetSubKeyNames())
+      {
+        try
+        {
+          using RegistryKey? profile = profiles.OpenSubKey(sid);
+          string? rawPath = Convert.ToString(profile?.GetValue("ProfileImagePath"));
+          if (string.IsNullOrWhiteSpace(rawPath)) continue;
+          string profilePath = Environment.ExpandEnvironmentVariables(rawPath);
+          foreach (string appData in new[] { "Roaming", "Local" })
+          {
+            string path = Path.Combine(
+              profilePath,
+              "AppData",
+              appData,
+              "AuthorizedDeviceControl",
+              "device.id");
+            if (File.Exists(path)) File.Delete(path);
+          }
+        }
+        catch { }
+      }
+    }
+    catch { }
   }
 
   public static string GetInteractiveUserName()

@@ -24,7 +24,7 @@ public partial class MainWindow
     // the SYSTEM service owns management while the helper owns interactive
     // desktop and Codex operations.  Gating this loop on _stream made the
     // helper's Codex channel exit before its first connection attempt.
-    while (!token.IsCancellationRequested && (_stream is not null || _inputOnly))
+    while (!token.IsCancellationRequested && _stream is not null)
     {
       TcpClient? client = null;
       try

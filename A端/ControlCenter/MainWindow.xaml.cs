@@ -43,8 +43,7 @@ public partial class MainWindow : Window
     _channelGenerations = new();
   private readonly ConcurrentDictionary<string, DeviceView> _devicesById = new();
   private readonly ConcurrentDictionary<string, byte> _reportedIncompatibleAgents = new(StringComparer.OrdinalIgnoreCase);
-  private readonly ConcurrentDictionary<string, byte> _deletedDeviceIds =
-    new(StringComparer.OrdinalIgnoreCase);
+  private readonly DeviceDeletionQuarantine _deletedDevices = new();
   private readonly DeviceMetadataStore _metadataStore = new();
   private readonly List<string> _fileHistory = new();
   private int _fileHistoryIndex = -1;
@@ -53,8 +52,7 @@ public partial class MainWindow : Window
   private Point _fileDragStart;
   private readonly DispatcherTimer _processTimer = new() { Interval = TimeSpan.FromSeconds(1) };
   private readonly DispatcherTimer _serviceTimer = new() { Interval = TimeSpan.FromSeconds(3) };
-  private readonly Dictionary<string, DesktopControlWindow> _desktopWindows =
-    new(StringComparer.OrdinalIgnoreCase);
+  private readonly RustDeskSessionManager _rustDeskSessions = new();
   private bool _processRefreshInFlight;
   private bool _processIconRefreshInFlight;
   private CancellationTokenSource? _processIconCts;
@@ -109,15 +107,13 @@ public partial class MainWindow : Window
       _serverCts = new CancellationTokenSource();
       _listener = new TcpListener(IPAddress.Any, port);
       _listener.Start();
-      StartUdpDesktopServer(port, _serverCts.Token);
-      StatusItem.Content = $"正在监听 0.0.0.0:{port}（TCP业务 + UDP桌面）";
+      StatusItem.Content = $"正在监听 0.0.0.0:{port}";
       _ = AcceptLoopAsync(_serverCts.Token);
     }
     catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
     {
       try { _listener?.Stop(); } catch { }
       _listener = null;
-      StopUdpDesktopServer();
       _serverCts?.Dispose();
       _serverCts = null;
       StatusItem.Content = $"端口 {port} 已由另一个A端实例占用。";
@@ -135,7 +131,6 @@ public partial class MainWindow : Window
   {
     _serverCts?.Cancel(); _serverCts = null;
     _listener?.Stop(); _listener = null;
-    StopUdpDesktopServer();
     _channelGenerations.Clear();
     _devicesById.Clear();
     foreach (var d in Devices) d.Close();
@@ -187,14 +182,13 @@ public partial class MainWindow : Window
         client.Close();
         return;
       }
-      if (!AcceptChannelGeneration(channel))
-      {
-        client.Close();
-        return;
-      }
-
       if (channel.Channel == LogicalChannelType.Management)
       {
+        if (!AcceptChannelGeneration(channel))
+        {
+          client.Close();
+          return;
+        }
         await AttachManagementClientAsync(client, channel, token, linked.Token);
         return;
       }
@@ -209,29 +203,22 @@ public partial class MainWindow : Window
         return;
       }
 
+      if (channel.Channel == LogicalChannelType.RustDesk)
+      {
+        if (_rustDeskSessions.AttachAgentTunnel(channel.DeviceId, channel.Generation, client))
+          return;
+        client.Close();
+        return;
+      }
+
+      if (!AcceptChannelGeneration(channel))
+      {
+        client.Close();
+        return;
+      }
+
       switch (channel.Channel)
       {
-        case LogicalChannelType.Video:
-          if (!await VerifyHelloAsync(
-                () => BinaryVideoProtocol.ReadHelloAsync(stream, linked.Token),
-                channel.DeviceId))
-            break;
-          device.AttachTcpVideoClient(client, token);
-          return;
-        case LogicalChannelType.Input:
-          if (!await VerifyHelloAsync(
-                () => BinaryControlProtocol.ReadHelloAsync(stream, linked.Token),
-                channel.DeviceId))
-            break;
-          device.AttachTcpInputClient(client, token);
-          return;
-        case LogicalChannelType.Clipboard:
-          if (!await VerifyHelloAsync(
-                () => BinaryClipboardProtocol.ReadHelloAsync(stream, linked.Token),
-                channel.DeviceId))
-            break;
-          device.AttachClipboardClient(client, token);
-          return;
         case LogicalChannelType.File:
           if (!await VerifyHelloAsync(
                 () => BinaryFileTransferProtocol.ReadHelloAsync(stream, linked.Token),
@@ -283,7 +270,10 @@ public partial class MainWindow : Window
       client.Close();
       return;
     }
-    if (_deletedDeviceIds.ContainsKey(hello.DeviceId))
+    if (_deletedDevices.ShouldReject(
+          hello.DeviceId,
+          channel.InstanceId,
+          DateTimeOffset.UtcNow))
     {
       client.Close();
       return;
@@ -328,7 +318,6 @@ public partial class MainWindow : Window
           DeviceList.SelectedItem = device;
       });
     }
-    device.ConfigureUdpTransport(SendUdpDesktopAsync, serverToken);
     await Dispatcher.InvokeAsync(() =>
     {
       device.ApplyResolvedMetadata();
@@ -342,7 +331,6 @@ public partial class MainWindow : Window
       () => Dispatcher.Invoke(() => OnDeviceConnectionChanged(device)),
       serverToken,
       generation);
-    if (device.ScreenStreamRequested) _ = device.ResumeScreenStreamAsync();
   }
 
   private bool AcceptChannelGeneration(LogicalChannelHello hello)
@@ -450,32 +438,13 @@ public partial class MainWindow : Window
       _ = LoadRegistryRootsFromSelectedDeviceAsync(force: true);
   }
 
-  private void OpenDesktopTab_Click(object sender, RoutedEventArgs e)
+  private async void OpenDesktopTab_Click(object sender, RoutedEventArgs e)
   {
     try
     {
       var d = SelectedDevice();
       bool allowControl = (sender as FrameworkElement)?.Tag?.ToString() != "View";
-      if (_desktopWindows.TryGetValue(d.DeviceId, out DesktopControlWindow? existing))
-      {
-        existing.SetControlMode(allowControl);
-        if (!existing.IsVisible) existing.Show();
-        if (existing.WindowState == WindowState.Minimized)
-          existing.WindowState = WindowState.Normal;
-        existing.Activate();
-        existing.Focus();
-        SetStatus($"已激活桌面{(allowControl ? "控制" : "观看")}窗口：{d.DisplayTitle}");
-        return;
-      }
-      var win = new DesktopControlWindow(d, allowControl) { Owner = this };
-      _desktopWindows[d.DeviceId] = win;
-      win.Closed += (_, _) =>
-      {
-        if (_desktopWindows.TryGetValue(d.DeviceId, out DesktopControlWindow? current) &&
-            ReferenceEquals(current, win))
-          _desktopWindows.Remove(d.DeviceId);
-      };
-      win.Show();
+      await _rustDeskSessions.OpenAsync(d, viewOnly: !allowControl);
       SetStatus($"已打开桌面{(allowControl ? "控制" : "观看")}窗口：{d.DisplayTitle}");
     }
     catch (Exception ex) { SetStatus($"打开实时远程桌面失败：{ex.GetType().Name}: {ex.Message}"); }
@@ -796,7 +765,10 @@ public partial class MainWindow : Window
         MessageType.AgentUninstallResponse);
       if (!result.Success)
         throw new InvalidOperationException(result.Message);
-      _deletedDeviceIds[d.DeviceId] = 0;
+      _deletedDevices.Block(
+        d.DeviceId,
+        d.InstanceId,
+        DateTimeOffset.UtcNow.AddSeconds(30));
       _metadataStore.Remove(d.DeviceId);
       _devicesById.TryRemove(d.DeviceId, out _);
       d.Close();
@@ -806,7 +778,7 @@ public partial class MainWindow : Window
     }
     catch (Exception ex)
     {
-      _deletedDeviceIds.TryRemove(d.DeviceId, out _);
+      _deletedDevices.Clear(d.DeviceId);
       MessageBox.Show(
         this,
         "B端未确认删除，设备记录已保留。\n\n" + ex.Message,
@@ -2094,9 +2066,7 @@ public partial class MainWindow : Window
 
   protected override void OnClosed(EventArgs e)
   {
-    foreach (DesktopControlWindow window in _desktopWindows.Values.ToArray())
-      try { window.Close(); } catch { }
-    _desktopWindows.Clear();
+    _rustDeskSessions.Dispose();
     DisposeTraySupport();
     _processTimer.Stop();
     _serviceTimer.Stop();
@@ -2487,16 +2457,11 @@ public sealed partial class DeviceView : INotifyPropertyChanged
   private TcpClient? _client;
   private NetworkStream? _stream;
   private long _managementGeneration = 1;
-  private string _screenSessionId = string.Empty;
   private Guid _instanceId;
   private readonly ConcurrentDictionary<string, TaskCompletionSource<RemoteMessage>> _pending = new();
   private readonly SemaphoreSlim _writeLock = new(1, 1);
   private string _status = "连接中";
   public event PropertyChangedEventHandler? PropertyChanged;
-  public event Action<RemoteVideoFrame>? VideoFrameReceived;
-  public event Action<RemoteAudioFrame>? AudioFrameReceived;
-  public event Action<string>? VideoStatusReceived;
-  public event Action<string>? ClipboardTextReceived;
   public Func<string, DeviceMetadata>? MetadataResolver { get; set; }
   public string DeviceId { get; private set; } = string.Empty;
   public string DeviceName { get; private set; } = "未知设备";
@@ -2516,14 +2481,10 @@ public sealed partial class DeviceView : INotifyPropertyChanged
   {
     get { lock (_managementGate) return _instanceId; }
   }
-  public DesktopTransportCapabilities DesktopCapabilities { get; private set; }
+  public RemoteDesktopCapabilities DesktopCapabilities { get; private set; }
   public string DisplayTitle => DeviceName;
   public string RemarkLine => string.IsNullOrWhiteSpace(Remark) ? UserName : Remark;
   public bool IsOnline => string.Equals(_status, "在线", StringComparison.Ordinal);
-  public bool ScreenStreamRequested
-  {
-    get { lock (_managementGate) return _screenSessionId.Length > 0; }
-  }
   public Brush StatusForeground => IsOnline ? new SolidColorBrush(Color.FromRgb(124, 242, 163)) : new SolidColorBrush(Color.FromRgb(255, 112, 112));
   public Brush StatusBackground => IsOnline ? new SolidColorBrush(Color.FromRgb(18, 61, 42)) : new SolidColorBrush(Color.FromRgb(73, 28, 34));
   public string Status { get => _status; set { _status = value; Changed(nameof(Status)); Changed(nameof(IsOnline)); Changed(nameof(StatusForeground)); Changed(nameof(StatusBackground)); } }
@@ -2669,7 +2630,6 @@ public sealed partial class DeviceView : INotifyPropertyChanged
     int timeoutSeconds,
     CancellationToken cancellationToken = default)
   {
-    UpdateScreenStreamIntent(type, payload);
     var msg = new RemoteMessage { RequestId = Guid.NewGuid().ToString("N"), Type = type, Payload = MessagePayload.ToElement(payload) };
     var tcs = new TaskCompletionSource<RemoteMessage>(TaskCreationOptions.RunContinuationsAsynchronously); _pending[msg.RequestId] = tcs;
     try
@@ -2700,7 +2660,6 @@ public sealed partial class DeviceView : INotifyPropertyChanged
   }
   public async Task SendAsync(MessageType type, object payload)
   {
-    UpdateScreenStreamIntent(type, payload);
     var msg = new RemoteMessage { RequestId = Guid.NewGuid().ToString("N"), Type = type, Payload = MessagePayload.ToElement(payload) };
     await _writeLock.WaitAsync();
     try
@@ -2713,162 +2672,8 @@ public sealed partial class DeviceView : INotifyPropertyChanged
     finally { _writeLock.Release(); }
   }
 
-  public async Task ResumeScreenStreamAsync()
-  {
-    string sessionId;
-    lock (_managementGate) sessionId = _screenSessionId;
-    if (sessionId.Length == 0 || !IsOnline) return;
-    try
-    {
-      await RequestAsync(
-        MessageType.ScreenStreamStart,
-        new DesktopSessionPayload(sessionId),
-        20);
-    }
-    catch { }
-  }
-
-  public void ForgetScreenStreamSession(string sessionId)
-  {
-    if (string.IsNullOrWhiteSpace(sessionId)) return;
-    lock (_managementGate)
-    {
-      if (string.Equals(
-            _screenSessionId,
-            sessionId,
-            StringComparison.OrdinalIgnoreCase))
-        _screenSessionId = string.Empty;
-    }
-  }
-
-  private void UpdateScreenStreamIntent(MessageType type, object payload)
-  {
-    if (payload is not DesktopSessionPayload session ||
-        string.IsNullOrWhiteSpace(session.SessionId))
-      return;
-    lock (_managementGate)
-    {
-      if (type == MessageType.ScreenStreamStart)
-        _screenSessionId = session.SessionId;
-      else if (type == MessageType.ScreenStreamStop &&
-               string.Equals(
-                 _screenSessionId,
-                 session.SessionId,
-                 StringComparison.OrdinalIgnoreCase))
-        _screenSessionId = string.Empty;
-    }
-  }
-  private TcpClient? _clipboardClient;
-  private NetworkStream? _clipboardStream;
-  private CancellationTokenSource? _clipboardCts;
-  private readonly SemaphoreSlim _clipboardWriteLock = new(1, 1);
-  private ClipboardFileReceiver? _clipboardReceiver;
-  public event Action<IReadOnlyList<string>>? ClipboardFilesReceived;
-
-  public bool IsVideoConnected =>
-    IsUdpPeerFresh(UdpDesktopPeerRole.VideoProducer) || IsTcpVideoConnected;
-
-  public bool IsInputConnected =>
-    IsUdpPeerFresh(UdpDesktopPeerRole.InputExecutor) || IsTcpInputConnected;
-
-  public async Task SendControlAsync(ControlPacket packet, CancellationToken token = default)
-  {
-    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-    timeout.CancelAfter(TimeSpan.FromSeconds(1));
-    bool videoFeedback = packet.Type == ControlPacketType.VideoFeedback;
-    UdpDesktopPeerRole role = videoFeedback
-      ? UdpDesktopPeerRole.VideoProducer
-      : UdpDesktopPeerRole.InputExecutor;
-    if (IsUdpPeerFresh(role))
-    {
-      try
-      {
-        await SendUdpControlAsync(packet, timeout.Token);
-        return;
-      }
-      catch when (!timeout.IsCancellationRequested)
-      {
-        // A public-network UDP mapping can disappear between the freshness
-        // check and the send. Continue on the already-authenticated TCP path.
-      }
-    }
-    if (videoFeedback)
-      await SendTcpVideoControlAsync(packet, timeout.Token);
-    else
-      await SendTcpInputControlAsync(packet, timeout.Token);
-  }
-
-  public InputResultPacket? LastInputResult { get; private set; }
-  public DateTime LastInputResultAt { get; private set; }
-  public event Action<InputResultPacket>? InputResultReceived;
-
-  public void AttachClipboardClient(TcpClient client, CancellationToken parentToken)
-  {
-    try { _clipboardCts?.Cancel(); _clipboardClient?.Close(); _clipboardReceiver?.Dispose(); } catch { }
-    _clipboardClient = client;
-    _clipboardStream = client.GetStream();
-    _clipboardCts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
-    string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AuthorizedDeviceControl", "Clipboard", DeviceId);
-    _clipboardReceiver = new ClipboardFileReceiver(cache);
-    _ = Task.Run(() => ClipboardReadLoopAsync(client, _clipboardCts.Token), _clipboardCts.Token);
-  }
-
-  private async Task ClipboardReadLoopAsync(TcpClient client, CancellationToken token)
-  {
-    try
-    {
-      NetworkStream stream = client.GetStream();
-      while (!token.IsCancellationRequested)
-      {
-        ClipboardPacket? packet = await BinaryClipboardProtocol.ReadAsync(stream, token);
-        if (packet is null) break;
-        if (packet.Type == ClipboardPacketType.Text)
-        {
-          ClipboardTextReceived?.Invoke(BinaryClipboardProtocol.ReadText(packet));
-          continue;
-        }
-        var paths = await (_clipboardReceiver?.ProcessAsync(packet, token) ?? Task.FromResult<IReadOnlyList<string>?>(null));
-        if (paths is { Count: > 0 }) ClipboardFilesReceived?.Invoke(paths);
-      }
-    }
-    catch (OperationCanceledException) { }
-    catch { }
-    finally { try { client.Close(); } catch { } }
-  }
-
-  public async Task SendClipboardTextAsync(string text, CancellationToken token = default)
-  {
-    NetworkStream? stream = _clipboardStream;
-    if (stream is null) throw new InvalidOperationException("剪贴板通道尚未连接。");
-    await _clipboardWriteLock.WaitAsync(token);
-    try
-    {
-      if (ReferenceEquals(_clipboardStream, stream)) await BinaryClipboardProtocol.WriteAsync(stream, BinaryClipboardProtocol.Text(text), token);
-    }
-    finally { _clipboardWriteLock.Release(); }
-  }
-
-  public async Task SendClipboardFilesAsync(IEnumerable<string> paths, CancellationToken token = default, Action<long, long>? progress = null)
-  {
-    NetworkStream? stream = _clipboardStream;
-    if (stream is null) throw new InvalidOperationException("剪贴板通道尚未连接。");
-    await BinaryClipboardProtocol.SendFilesAsync(stream, _clipboardWriteLock, paths, token, progress);
-  }
-
   private void ResetTransientChannelsForReconnect()
   {
-    try { CloseUdpDesktop(); } catch { }
-    try { CloseTcpDesktopFallback(); } catch { }
-    try
-    {
-      _clipboardCts?.Cancel();
-      _clipboardStream?.Dispose();
-      _clipboardClient?.Close();
-      _clipboardReceiver?.Dispose();
-      _clipboardStream = null;
-      _clipboardClient = null;
-    }
-    catch { }
     try { CloseFileChannel(); } catch { }
     try { CloseDedicatedChannelClients(); } catch { }
     try { CloseCodexClient(); } catch { }

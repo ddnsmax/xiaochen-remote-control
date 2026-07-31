@@ -8,4 +8,7 @@
   <Folder Name="/Shared/">
     <Project Path="Shared/RemoteControl.Shared/RemoteControl.Shared.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/RemoteControl.Shared.Tests/RemoteControl.Shared.Tests.csproj" />
+  </Folder>
 </Solution>
